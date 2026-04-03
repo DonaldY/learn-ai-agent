@@ -1,0 +1,67 @@
+> "上下文总会满, 要有办法腾地方"-- 三层压缩策略, 换来无限会话。
+> 
+> **Harness 层**: 压缩 -- 干净的记忆, 无限的会话。
+
+**问题**：上下文窗口是有限的。读一个 1000 行的文件就吃掉 ~4000 token; 读 30 个文件、跑 20 条命令, 轻松突破 100k token。不压缩, Agent 根本没法在大项目里干活。
+
+```
+Every turn:
++------------------+
+| Tool call result |
++------------------+
+        |
+        v
+[Layer 1: micro_compact]        (silent, every turn)
+  Replace tool_result > 3 turns old
+  with "[Previous: used {tool_name}]"
+        |
+        v
+[Check: tokens > 50000?]
+   |               |
+   no              yes
+   |               |
+   v               v
+continue    [Layer 2: auto_compact]
+              Save transcript to .transcripts/
+              LLM summarizes conversation.
+              Replace all messages with [summary].
+                    |
+                    v
+            [Layer 3: compact tool]
+              Model calls compact explicitly.
+              Same summarization as auto_compact.
+```
+
+**解决：**
+
+1、第一层 -- micro_compact: 每次 LLM 调用前, 将旧的 tool result 替换为占位符。
+
+2、第二层 -- auto_compact: token 超过阈值时, 保存完整对话到磁盘, 让 LLM 做摘要。
+
+3、第三层 -- manual compact:`compact`工具按需触发同样的摘要机制。
+
+4、循环整合三层:
+
+```py
+def agent_loop(messages: list):
+    while True:
+        micro_compact(messages)                        # Layer 1
+        if estimate_tokens(messages) > THRESHOLD:
+            messages[:] = auto_compact(messages)       # Layer 2
+        response = client.messages.create(...)
+        # ... tool execution ...
+        if manual_compact:
+            messages[:] = auto_compact(messages)       # Layer 3
+```
+
+**Tips：完整历史通过 transcript 保存在磁盘上。信息没有真正丢失, 只是移出了活跃上下文。**
+
+<br/>
+
+| 组件            | 之前 (s05) | 之后 (s06)          |
+| ------------- | -------- | ----------------- |
+| Tools         | 5        | 5 (基础 + compact)  |
+| 上下文管理         | 无        | 三层压缩              |
+| Micro-compact | 无        | 旧结果 -> 占位符        |
+| Auto-compact  | 无        | token 阈值触发        |
+| Transcripts   | 无        | 保存到 .transcripts/
