@@ -1,0 +1,58 @@
+> _"队友之间要有统一的沟通规矩"_-- 一个 request-response 模式驱动所有协商。
+> 
+> **Harness 层**: 协议 -- 模型之间的结构化握手。
+
+**问题**：s09 中队友能干活能通信, 但缺少结构化协调:
+
+关机: 直接杀线程会留下写了一半的文件和过期的 config.json。
+
+**解决**：需要握手 -- 领导请求, 队友批准 (收尾退出) 或拒绝 (继续干)。
+
+计划审批: 领导说 "重构认证模块", 队友立刻开干。高风险变更应该先过审。
+
+两者结构一样: 一方发带唯一 ID 的请求, 另一方引用同一 ID 响应。
+
+```
+Shutdown Protocol            Plan Approval Protocol
+==================           ======================
+
+Lead             Teammate    Teammate           Lead
+  |                 |           |                 |
+  |--shutdown_req-->|           |--plan_req------>|
+  | {req_id:"abc"}  |           | {req_id:"xyz"}  |
+  |                 |           |                 |
+  |<--shutdown_resp-|           |<--plan_resp-----|
+  | {req_id:"abc",  |           | {req_id:"xyz",  |
+  |  approve:true}  |           |  approve:true}  |
+
+Shared FSM:
+  [pending] --approve--> [approved]
+  [pending] --reject---> [rejected]
+
+Trackers:
+  shutdown_requests = {req_id: {target, status}}
+  plan_requests     = {req_id: {from, plan, status}}
+```
+
+<img src="./img/s10-1.png" width="400"><img src="./img/s10-2.png" width="400">
+
+**工作原理：**
+
+1、领导生成 request_id, 通过收件箱发起关机请求。
+
+2、队友收到请求后, 用 approve/reject 响应。
+
+3、计划审批遵循完全相同的模式。队友提交计划 (生成 request_id), 领导审查 (引用同一个 request_id)。
+
+一个 FSM, 两种用途。同样的`pending -> approved | rejected`状态机可以套用到任何请求-响应协议上。
+
+
+<br/>
+
+| 组件    | 之前 (s09) | 之后 (s10)                      |
+| ----- | -------- | ----------------------------- |
+| Tools | 9        | 12 (+shutdown_req/resp +plan) |
+| 关机    | 仅自然退出    | 请求-响应握手                       |
+| 计划门控  | 无        | 提交/审查与审批                      |
+| 关联    | 无        | 每个请求一个 request_id             |
+| FSM   | 无        | pending -> approved/rejected
