@@ -41,3 +41,4 @@ export function lookupCityTrivia(city) {
         trivia: line ?? `没有为「${c}」准备内置小知识，可换杭州/北京/上海试试。`,
     });
 }
+// simple-mock.mjs
